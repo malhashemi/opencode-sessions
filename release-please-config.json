@@ -1,5 +1,5 @@
 {
-  "bootstrap-sha": "PLACEHOLDER_WILL_UPDATE_AFTER_FIRST_COMMIT",
+  "bootstrap-sha": "29481a3ceb40fbd50a059b6e38e63816b1eb0bf8",
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
