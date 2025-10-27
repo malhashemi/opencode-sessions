@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4](https://github.com/malhashemi/opencode-sessions/compare/v0.0.3...v0.0.4) (2025-10-27)
+
+
+### Bug Fixes
+
+* use tool hooks to prevent hangs in message and compact modes ([2ff2d46](https://github.com/malhashemi/opencode-sessions/commit/2ff2d46c87b02e37cdb8c002e92b06961ebd9f46))
+
 ## [0.0.3](https://github.com/malhashemi/opencode-sessions/compare/v0.0.2...v0.0.3) (2025-10-27)
 
 
