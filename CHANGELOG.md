@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.3](https://github.com/malhashemi/opencode-sessions/compare/v0.0.2...v0.0.3) (2025-10-27)
+
+
+### Bug Fixes
+
+* discover agents from markdown frontmatter instead of config ([f723f96](https://github.com/malhashemi/opencode-sessions/commit/f723f96621c0568dd989a344d272cd0bc78b2c08))
+
 ## [0.0.2](https://github.com/malhashemi/opencode-sessions/compare/v1.0.0...v0.0.2) (2025-10-27)
 
 
