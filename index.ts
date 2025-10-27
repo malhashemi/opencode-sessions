@@ -20,50 +20,105 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { join } from "path"
+import { readdir } from "fs/promises"
 import os from "os"
+import matter from "gray-matter"
 
 /**
- * Discover primary agents by reading opencode.json files from filesystem.
- * This approach avoids blocking API calls during plugin initialization.
+ * Discover primary agents by scanning agent directories for markdown files
+ * and checking opencode.json for disabled agents.
  * 
- * Discovery order (lowest to highest priority):
- * 1. ~/.config/opencode/opencode.json (XDG config)
- * 2. .opencode/opencode.json (project-local)
+ * Agent discovery process:
+ * 1. Scans ~/.config/opencode/agent/ and .opencode/agent/ for .md files
+ * 2. Parses YAML frontmatter to find agents with mode: "primary" or "all"
+ * 3. Adds built-in agents (build, plan) if not overridden by .md files
+ * 4. Checks opencode.json files for disabled agents
+ * 5. Returns list of enabled primary agents
+ * 
+ * Note: Built-in agents (build, plan) can be:
+ * - Overridden by creating build.md or plan.md files
+ * - Disabled via opencode.json with { agent: { build: { disable: true } } }
  */
 async function discoverAgents(projectDir: string): Promise<string[]> {
-  const builtInAgents = ["build", "plan"]
-  const customAgents: string[] = []
+  const agents: string[] = []
+  const disabledAgents = new Set<string>()
   
-  // Determine XDG config path
+  // Determine XDG config paths
   const xdgConfigHome = process.env.XDG_CONFIG_HOME
-  const configPath = xdgConfigHome
-    ? join(xdgConfigHome, "opencode/opencode.json")
-    : join(os.homedir(), ".config/opencode/opencode.json")
+  const xdgBase = xdgConfigHome
+    ? join(xdgConfigHome, "opencode")
+    : join(os.homedir(), ".config/opencode")
   
-  const paths = [
-    configPath,                                  // XDG config
-    join(projectDir, ".opencode/opencode.json"), // Project-local
+  const agentDirs = [
+    join(xdgBase, "agent"),              // XDG config agents
+    join(projectDir, ".opencode/agent"), // Project-local agents
   ]
   
-  // Read and parse each config file
-  for (const configPath of paths) {
+  const configPaths = [
+    join(xdgBase, "opencode.json"),              // XDG config
+    join(projectDir, ".opencode/opencode.json"), // Project-local config
+  ]
+  
+  // First, discover all primary agents from markdown files
+  for (const agentDir of agentDirs) {
+    try {
+      const files = await readdir(agentDir)
+      
+      for (const file of files) {
+        // Only process markdown files
+        if (!file.endsWith('.md')) continue
+        
+        try {
+          // Read file content
+          const filePath = join(agentDir, file)
+          const content = await Bun.file(filePath).text()
+          
+          // Parse YAML frontmatter
+          const { data } = matter(content)
+          
+          // Check if this is a primary agent
+          const mode = data.mode
+          if (mode === "primary" || mode === "all") {
+            // Extract agent name from filename (remove .md extension)
+            const agentName = file.replace(/\.md$/, '')
+            
+            // Add to list if not already present
+            if (!agents.includes(agentName)) {
+              agents.push(agentName)
+            }
+          }
+        } catch (error) {
+          // Skip files that can't be parsed
+          continue
+        }
+      }
+    } catch (error) {
+      // Silently skip directories that don't exist
+      // This is expected - not all paths will have agent directories
+    }
+  }
+  
+  // Add built-in agents if they weren't overridden by .md files
+  for (const builtIn of ["build", "plan"]) {
+    if (!agents.includes(builtIn)) {
+      agents.unshift(builtIn) // Add to front of list
+    }
+  }
+  
+  // Second, check opencode.json files for disabled agents
+  for (const configPath of configPaths) {
     try {
       const file = Bun.file(configPath)
       if (await file.exists()) {
         const config = await file.json()
         
-        // Extract custom agents from config
+        // Check for disabled agents
         if (config.agent && typeof config.agent === "object") {
           for (const [name, agentConfig] of Object.entries(config.agent)) {
             if (typeof agentConfig === "object" && agentConfig !== null) {
-              const mode = (agentConfig as any).mode
               const disabled = (agentConfig as any).disable
-              
-              // Include agents with mode "primary" or "all", not disabled
-              if (!disabled && (mode === "primary" || mode === "all")) {
-                if (!customAgents.includes(name)) {
-                  customAgents.push(name)
-                }
+              if (disabled) {
+                disabledAgents.add(name)
               }
             }
           }
@@ -71,11 +126,11 @@ async function discoverAgents(projectDir: string): Promise<string[]> {
       }
     } catch (error) {
       // Silently skip files that don't exist or can't be parsed
-      // This is expected behavior - not all paths will have config files
     }
   }
   
-  return [...builtInAgents, ...customAgents]
+  // Filter out disabled agents
+  return agents.filter(name => !disabledAgents.has(name))
 }
 
 export const SessionPlugin: Plugin = async (ctx) => {
@@ -148,7 +203,7 @@ EXAMPLES:
           try {
             switch(args.mode) {
               case "message":
-                // Send message with AI response
+                // Queue message (executes after tool returns)
                 await ctx.client.session.prompt({
                   path: { id: toolCtx.sessionID },
                   body: { 
@@ -156,9 +211,21 @@ EXAMPLES:
                     parts: [{ type: "text", text: args.text }]
                   }
                 })
+                
+                // Show toast for visible feedback
+                await ctx.client.tui.showToast({
+                  body: {
+                    message: args.agent 
+                      ? `Message sent to ${args.agent} agent` 
+                      : "Message sent successfully",
+                    variant: "success",
+                  }
+                })
+                
+                // Return meaningful message (tool completes, then queued message executes)
                 return args.agent 
-                  ? `Message sent via ${args.agent} agent`
-                  : "Message sent in current session"
+                  ? `Message sent to ${args.agent} agent`
+                  : "Message sent successfully"
                 
               case "context":
                 // Silent injection with optional agent switching
@@ -201,34 +268,27 @@ EXAMPLES:
                   body: { command: "session_compact" }
                 })
                 
-                // Use SDK if agent specified, TUI otherwise
-                if (args.agent) {
-                  await ctx.client.session.prompt({
-                    path: { id: toolCtx.sessionID },
-                    body: {
-                      agent: args.agent,
-                      parts: [{ type: "text", text: args.text }]
-                    }
-                  })
-                  return `Session compacting... ${args.agent} agent will respond after completion`
-                } else {
-                  await ctx.client.tui.appendPrompt({ body: { text: args.text }})
-                  await ctx.client.tui.submitPrompt()
-                  return "Session compacting... Message queued to send after completion"
-                }
-                
-              case "fork":
-                // Fork via SDK for agent control
-                // Note: For v0.0.1, fork creates a new session without parent linkage
-                // TODO: Future enhancement - add parentID and copy messages from parent
-                const forkedSession = await ctx.client.session.create({
+                // Always use SDK for reliable message queuing
+                await ctx.client.session.prompt({
+                  path: { id: toolCtx.sessionID },
                   body: {
-                    title: args.agent 
-                      ? `Fork via ${args.agent}` 
-                      : "Forked session"
+                    agent: args.agent,
+                    parts: [{ type: "text", text: args.text }]
                   }
                 })
                 
+                return args.agent 
+                  ? `Session compacting... ${args.agent} agent will respond after completion`
+                  : "Session compacting... Message queued to send after completion"
+                
+              case "fork":
+                // Use OpenCode's built-in fork API to copy message history
+                const forkedSession = await ctx.client.session.fork({
+                  path: { id: toolCtx.sessionID },
+                  body: {}
+                })
+                
+                // Send new message in forked session
                 await ctx.client.session.prompt({
                   path: { id: forkedSession.data.id },
                   body: {
@@ -237,7 +297,7 @@ EXAMPLES:
                   }
                 })
                 
-                return `Forked child session with ${args.agent || "build"} agent (ID: ${forkedSession.data.id})`
+                return `Forked session with ${args.agent || "build"} agent - history preserved (ID: ${forkedSession.data.id})`
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)

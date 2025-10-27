@@ -54,6 +54,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^0.15.18"
+    "@opencode-ai/sdk": "^0.15.18",
+    "gray-matter": "^4.0.3"
   }
 }
