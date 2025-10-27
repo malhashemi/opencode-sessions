@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/malhashemi/opencode-sessions/compare/v0.0.4...v0.0.5) (2025-10-27)
+
+
+### Bug Fixes
+
+* resolve deadlock in message/compact modes by not awaiting session.prompt ([edeebdd](https://github.com/malhashemi/opencode-sessions/commit/edeebdd0a224ffaddd3c78a04b7f22bcf8595138))
+
 ## [0.0.4](https://github.com/malhashemi/opencode-sessions/compare/v0.0.3...v0.0.4) (2025-10-27)
 
 
