@@ -21,14 +21,6 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 
 export const SessionPlugin: Plugin = async (ctx) => {
-  // Fetch primary agents at plugin initialization
-  const agentsResponse = await ctx.client.app.agents()
-  const agents = agentsResponse.data || []
-  const primaryAgents = agents
-    .filter(a => a.mode === "primary" || a.mode === "all")
-    .map(a => `  • ${a.name}${a.description ? ` - ${a.description}` : ""}`)
-    .join("\n")
-  
   return {
     tool: {
       session: tool({
@@ -50,8 +42,7 @@ AGENT PARAMETER (optional):
 
 Specify which primary agent handles the message. Enables agent-to-agent handoffs and multi-agent collaboration in same session.
 
-Available primary agents:
-${primaryAgents}
+Common agents: build (default), plan, or custom agents from your config.
 
 If omitted, uses current agent.
 
