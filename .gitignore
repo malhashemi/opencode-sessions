@@ -1,0 +1,31 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+# Dependency directories
+node_modules/
+# Environment variables
+.env
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+.DS_Store
+.pytest_cache
+thoughts/
+
+# External repositories directory (ignore cloned repos, track documentation and scripts)
+.extern/*
+!.extern/AGENTS.md
+!.extern/scripts/
+__pycache__/
+dist/
+*.tsbuildinfo

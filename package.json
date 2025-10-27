@@ -1,0 +1,59 @@
+{
+  "name": "opencode-sessions",
+  "version": "0.0.1",
+  "description": "Session management plugin for OpenCode with multi-agent collaboration support",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "license": "MIT",
+  "author": "M. Adel Alhashemi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/malhashemi/opencode-sessions.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "opencode",
+    "session",
+    "plugin",
+    "workflow",
+    "context",
+    "agent",
+    "multi-agent",
+    "collaboration",
+    "ai",
+    "claude"
+  ],
+  "homepage": "https://github.com/malhashemi/opencode-sessions#readme",
+  "bugs": {
+    "url": "https://github.com/malhashemi/opencode-sessions/issues"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^0.15.18"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^0.15.18",
+    "@types/bun": "^1.3.0",
+    "bun-types": "^1.3.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "^0.15.18"
+  }
+}
