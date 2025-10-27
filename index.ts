@@ -179,23 +179,30 @@ export const SessionPlugin: Plugin = async (ctx) => {
         
         try {
           if (pending.mode === "message") {
-            // Send the message now that tool response is shown
-            await ctx.client.session.prompt({
+            // CRITICAL: Don't await! Session is still locked.
+            // Fire-and-forget: session.prompt() will queue and execute after lock releases
+            ctx.client.session.prompt({
               path: { id: pending.sessionID },
               body: {
                 agent: pending.agent,
                 parts: [{ type: "text", text: pending.text }]
               }
+            }).catch(err => {
+              console.error('[session-plugin] Message mode failed:', err)
             })
           } else if (pending.mode === "compact") {
-            // Wait for compaction to complete (30 seconds)
-            await new Promise(resolve => setTimeout(resolve, 30000))
-            
-            // Use TUI to send message (appears as user input)
-            await ctx.client.tui.appendPrompt({ 
-              body: { text: pending.text }
+            // For compact: inject message silently with noReply
+            // The compaction command will trigger inference which picks up the message
+            ctx.client.session.prompt({
+              path: { id: pending.sessionID },
+              body: {
+                agent: pending.agent,
+                noReply: true,  // Silent injection - compaction will trigger inference
+                parts: [{ type: "text", text: pending.text }]
+              }
+            }).catch(err => {
+              console.error('[session-plugin] Compact mode failed:', err)
             })
-            await ctx.client.tui.submitPrompt()
           }
         } catch (error) {
           console.error(`[session-plugin] Failed to execute pending ${pending.mode} operation:`, error)
@@ -215,7 +222,7 @@ MODE OPTIONS:
 
 • new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase. Can trigger slash commands in clean state.
 
-• compact - Compress session history to free tokens, then continue with message. Use during long conversations when approaching token limits but need to preserve context for ongoing work.
+• compact - Compress session history to free tokens, then inject message silently. The compaction process automatically triggers inference which picks up the injected message. Use during long conversations when approaching token limits but need to preserve context for ongoing work.
 
 • fork - Branch into child session from current point to explore alternatives. Parent session unchanged. Use to experiment with different approaches, test solutions, or explore "what if" scenarios without risk.
 
@@ -318,10 +325,11 @@ EXAMPLES:
                   body: { command: "session_compact" }
                 })
                 
-                // Return immediately - actual message sending happens in tool.after hook after 30s
+                // Return immediately - message will be injected in tool.after hook
+                // The compaction process will trigger inference which picks up the injected message
                 return args.agent 
-                  ? `Session compacting... message will be sent to ${args.agent} agent after compaction`
-                  : "Session compacting... message will be sent after compaction"
+                  ? `Session compacting... message will be sent to ${args.agent} agent after compaction completes`
+                  : "Session compacting... message queued to send after compaction completes"
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
