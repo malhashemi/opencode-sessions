@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.2 (2025-10-27)
+
+
+### Bug Fixes
+
+* remove blocking agent discovery that froze OpenCode on startup ([345d398](https://github.com/malhashemi/opencode-sessions/commit/345d3983080ab8245a0c7d35290825a041aeeaf8))
+
 ## 0.0.1 (2025-10-27)
 
 
