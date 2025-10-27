@@ -140,7 +140,69 @@ export const SessionPlugin: Plugin = async (ctx) => {
     .map(name => `  • ${name}`)
     .join("\n")
   
+  // Store pending operation for message and compact modes
+  // Since tools execute sequentially, we only need to track one at a time
+  let pendingOperation: {
+    mode: "message" | "compact",
+    text: string,
+    agent?: string,
+    sessionID: string
+  } | null = null
+  
   return {
+    // Hook: Before tool execution - save args for message/compact modes
+    "tool.execute.before": async (input, output) => {
+      if (input.tool === "session") {
+        const args = output.args as { mode: string, text: string, agent?: string }
+        
+        if (args.mode === "message" || args.mode === "compact") {
+          // Store for later execution in tool.after
+          // We'll get sessionID from the tool.after hook
+          pendingOperation = {
+            mode: args.mode as "message" | "compact",
+            text: args.text,
+            agent: args.agent,
+            sessionID: "" // Will be filled in by tool execution
+          }
+        }
+      }
+    },
+    
+    // Hook: After tool execution - execute pending operations
+    "tool.execute.after": async (input, output) => {
+      if (input.tool === "session" && pendingOperation) {
+        const pending = pendingOperation
+        pendingOperation = null // Clear immediately
+        
+        // If sessionID wasn't set, we can't proceed
+        if (!pending.sessionID) return
+        
+        try {
+          if (pending.mode === "message") {
+            // Send the message now that tool response is shown
+            await ctx.client.session.prompt({
+              path: { id: pending.sessionID },
+              body: {
+                agent: pending.agent,
+                parts: [{ type: "text", text: pending.text }]
+              }
+            })
+          } else if (pending.mode === "compact") {
+            // Wait for compaction to complete (30 seconds)
+            await new Promise(resolve => setTimeout(resolve, 30000))
+            
+            // Use TUI to send message (appears as user input)
+            await ctx.client.tui.appendPrompt({ 
+              body: { text: pending.text }
+            })
+            await ctx.client.tui.submitPrompt()
+          }
+        } catch (error) {
+          console.error(`[session-plugin] Failed to execute pending ${pending.mode} operation:`, error)
+        }
+      }
+    },
+    
     tool: {
       session: tool({
         description: `Manage session context and conversation flow across different phases of work.
@@ -149,7 +211,7 @@ MODE OPTIONS:
 
 • message - Send message in current session and trigger AI response. Use for programmatic messaging, agent switching mid-conversation, or continuing discussion with different agent perspective.
 
-• context - Silently inject text without triggering AI response. Use to add instructions, constraints, or reference material mid-conversation while preserving flow.
+• context - Silently inject text without triggering AI response. Use to add instructions, constraints, or reference material mid-conversation while preserving flow. Note: agent parameter has no effect in context mode since noReply prevents agent inference.
 
 • new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase. Can trigger slash commands in clean state.
 
@@ -203,43 +265,26 @@ EXAMPLES:
           try {
             switch(args.mode) {
               case "message":
-                // Queue message (executes after tool returns)
-                await ctx.client.session.prompt({
-                  path: { id: toolCtx.sessionID },
-                  body: { 
-                    agent: args.agent,
-                    parts: [{ type: "text", text: args.text }]
-                  }
-                })
+                // Store sessionID for the pending operation
+                if (pendingOperation) {
+                  pendingOperation.sessionID = toolCtx.sessionID
+                }
                 
-                // Show toast for visible feedback
-                await ctx.client.tui.showToast({
-                  body: {
-                    message: args.agent 
-                      ? `Message sent to ${args.agent} agent` 
-                      : "Message sent successfully",
-                    variant: "success",
-                  }
-                })
-                
-                // Return meaningful message (tool completes, then queued message executes)
+                // Return immediately - actual message sending happens in tool.after hook
                 return args.agent 
-                  ? `Message sent to ${args.agent} agent`
-                  : "Message sent successfully"
+                  ? `Message being sent to ${args.agent} agent, please wait...`
+                  : "Message being sent, please wait..."
                 
               case "context":
-                // Silent injection with optional agent switching
+                // Silent injection (agent parameter has no effect with noReply: true)
                 await ctx.client.session.prompt({
                   path: { id: toolCtx.sessionID },
                   body: { 
-                    agent: args.agent,
                     noReply: true,
                     parts: [{ type: "text", text: args.text }]
                   }
                 })
-                return args.agent 
-                  ? `Context injected via ${args.agent} agent (no AI response)`
-                  : "Context injected silently into current session"
+                return "Context injected silently into current session (Note: agent parameter has no effect with context mode)"
                 
               case "new":
                 // Create session via SDK for agent control
@@ -263,23 +308,20 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                // Compact session, then send with optional agent
+                // Store sessionID for the pending operation
+                if (pendingOperation) {
+                  pendingOperation.sessionID = toolCtx.sessionID
+                }
+                
+                // Trigger compact command
                 await ctx.client.tui.executeCommand({ 
                   body: { command: "session_compact" }
                 })
                 
-                // Always use SDK for reliable message queuing
-                await ctx.client.session.prompt({
-                  path: { id: toolCtx.sessionID },
-                  body: {
-                    agent: args.agent,
-                    parts: [{ type: "text", text: args.text }]
-                  }
-                })
-                
+                // Return immediately - actual message sending happens in tool.after hook after 30s
                 return args.agent 
-                  ? `Session compacting... ${args.agent} agent will respond after completion`
-                  : "Session compacting... Message queued to send after completion"
+                  ? `Session compacting... message will be sent to ${args.agent} agent after compaction`
+                  : "Session compacting... message will be sent after compaction"
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
