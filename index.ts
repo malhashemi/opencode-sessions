@@ -11,7 +11,7 @@
  * - Agent-to-agent handoffs
  * - Multi-agent collaboration
  * 
- * @version 0.0.1
+ * @version 0.0.3
  * @license MIT
  * @author M. Adel Alhashemi
  * @see https://github.com/malhashemi/opencode-sessions
@@ -19,8 +19,72 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
+import { join } from "path"
+import os from "os"
+
+/**
+ * Discover primary agents by reading opencode.json files from filesystem.
+ * This approach avoids blocking API calls during plugin initialization.
+ * 
+ * Discovery order (lowest to highest priority):
+ * 1. ~/.config/opencode/opencode.json (XDG config)
+ * 2. .opencode/opencode.json (project-local)
+ */
+async function discoverAgents(projectDir: string): Promise<string[]> {
+  const builtInAgents = ["build", "plan"]
+  const customAgents: string[] = []
+  
+  // Determine XDG config path
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME
+  const configPath = xdgConfigHome
+    ? join(xdgConfigHome, "opencode/opencode.json")
+    : join(os.homedir(), ".config/opencode/opencode.json")
+  
+  const paths = [
+    configPath,                                  // XDG config
+    join(projectDir, ".opencode/opencode.json"), // Project-local
+  ]
+  
+  // Read and parse each config file
+  for (const configPath of paths) {
+    try {
+      const file = Bun.file(configPath)
+      if (await file.exists()) {
+        const config = await file.json()
+        
+        // Extract custom agents from config
+        if (config.agent && typeof config.agent === "object") {
+          for (const [name, agentConfig] of Object.entries(config.agent)) {
+            if (typeof agentConfig === "object" && agentConfig !== null) {
+              const mode = (agentConfig as any).mode
+              const disabled = (agentConfig as any).disable
+              
+              // Include agents with mode "primary" or "all", not disabled
+              if (!disabled && (mode === "primary" || mode === "all")) {
+                if (!customAgents.includes(name)) {
+                  customAgents.push(name)
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Silently skip files that don't exist or can't be parsed
+      // This is expected behavior - not all paths will have config files
+    }
+  }
+  
+  return [...builtInAgents, ...customAgents]
+}
 
 export const SessionPlugin: Plugin = async (ctx) => {
+  // Discover agents from filesystem (no blocking API calls!)
+  const agents = await discoverAgents(ctx.directory)
+  const agentList = agents
+    .map(name => `  • ${name}`)
+    .join("\n")
+  
   return {
     tool: {
       session: tool({
@@ -42,7 +106,8 @@ AGENT PARAMETER (optional):
 
 Specify which primary agent handles the message. Enables agent-to-agent handoffs and multi-agent collaboration in same session.
 
-Common agents: build (default), plan, or custom agents from your config.
+Available primary agents:
+${agentList}
 
 If omitted, uses current agent.
 
