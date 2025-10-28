@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0](https://github.com/malhashemi/opencode-sessions/compare/v0.0.5...v0.1.0) (2025-10-28)
+## [0.0.6](https://github.com/malhashemi/opencode-sessions/compare/v0.0.5...v0.0.6) (2025-10-28)
 
 
 ### Features
