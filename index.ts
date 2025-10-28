@@ -11,7 +11,7 @@
  * - Agent-to-agent handoffs
  * - Multi-agent collaboration
  * 
- * @version 0.0.3
+ * @version 0.0.6
  * @license MIT
  * @author M. Adel Alhashemi
  * @see https://github.com/malhashemi/opencode-sessions
@@ -140,72 +140,48 @@ export const SessionPlugin: Plugin = async (ctx) => {
     .map(name => `  • ${name}`)
     .join("\n")
   
-  // Store pending operation for message and compact modes
-  // Since tools execute sequentially, we only need to track one at a time
-  let pendingOperation: {
-    mode: "message" | "compact",
-    text: string,
-    agent?: string,
-    sessionID: string
-  } | null = null
+  // Store pending messages for agent relay communication
+  // Map<sessionID, { agent?, text }>
+  const pendingMessages = new Map<string, { agent?: string, text: string }>()
   
   return {
-    // Hook: Before tool execution - save args for message/compact modes
+    // Hook: Before tool execution - save args for message mode
     "tool.execute.before": async (input, output) => {
       if (input.tool === "session") {
         const args = output.args as { mode: string, text: string, agent?: string }
         
-        if (args.mode === "message" || args.mode === "compact") {
-          // Store for later execution in tool.after
-          // We'll get sessionID from the tool.after hook
-          pendingOperation = {
-            mode: args.mode as "message" | "compact",
-            text: args.text,
+        if (args.mode === "message") {
+          // Store message for later - will be sent on session.idle event
+          pendingMessages.set(input.sessionID, {
             agent: args.agent,
-            sessionID: "" // Will be filled in by tool execution
-          }
+            text: args.text
+          })
         }
       }
     },
     
-    // Hook: After tool execution - execute pending operations
-    "tool.execute.after": async (input, output) => {
-      if (input.tool === "session" && pendingOperation) {
-        const pending = pendingOperation
-        pendingOperation = null // Clear immediately
+    // Hook: Listen for session.idle event to send queued messages
+    event: async ({ event }) => {
+      if (event.type === "session.idle") {
+        const sessionID = event.properties.sessionID
+        const pending = pendingMessages.get(sessionID)
         
-        // If sessionID wasn't set, we can't proceed
-        if (!pending.sessionID) return
-        
-        try {
-          if (pending.mode === "message") {
-            // CRITICAL: Don't await! Session is still locked.
-            // Fire-and-forget: session.prompt() will queue and execute after lock releases
-            ctx.client.session.prompt({
-              path: { id: pending.sessionID },
+        if (pending) {
+          // Remove from queue
+          pendingMessages.delete(sessionID)
+          
+          try {
+            // Session is unlocked now - safe to call session.prompt with agent parameter
+            await ctx.client.session.prompt({
+              path: { id: sessionID },
               body: {
                 agent: pending.agent,
                 parts: [{ type: "text", text: pending.text }]
               }
-            }).catch(err => {
-              console.error('[session-plugin] Message mode failed:', err)
             })
-          } else if (pending.mode === "compact") {
-            // For compact: inject message silently with noReply
-            // The compaction command will trigger inference which picks up the message
-            ctx.client.session.prompt({
-              path: { id: pending.sessionID },
-              body: {
-                agent: pending.agent,
-                noReply: true,  // Silent injection - compaction will trigger inference
-                parts: [{ type: "text", text: pending.text }]
-              }
-            }).catch(err => {
-              console.error('[session-plugin] Compact mode failed:', err)
-            })
+          } catch (error) {
+            console.error('[session-plugin] Failed to send message on session.idle:', error)
           }
-        } catch (error) {
-          console.error(`[session-plugin] Failed to execute pending ${pending.mode} operation:`, error)
         }
       }
     },
@@ -272,15 +248,11 @@ EXAMPLES:
           try {
             switch(args.mode) {
               case "message":
-                // Store sessionID for the pending operation
-                if (pendingOperation) {
-                  pendingOperation.sessionID = toolCtx.sessionID
-                }
-                
-                // Return immediately - actual message sending happens in tool.after hook
+                // Message is stored in tool.execute.before hook
+                // Will be sent after session.idle event fires
                 return args.agent 
-                  ? `Message being sent to ${args.agent} agent, please wait...`
-                  : "Message being sent, please wait..."
+                  ? `Message sent to ${args.agent} agent. They will respond in this conversation.`
+                  : "Message sent. Awaiting response in this conversation."
                 
               case "context":
                 // Silent injection (agent parameter has no effect with noReply: true)
@@ -315,21 +287,14 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                // Store sessionID for the pending operation
-                if (pendingOperation) {
-                  pendingOperation.sessionID = toolCtx.sessionID
-                }
-                
                 // Trigger compact command
                 await ctx.client.tui.executeCommand({ 
                   body: { command: "session_compact" }
                 })
                 
-                // Return immediately - message will be injected in tool.after hook
-                // The compaction process will trigger inference which picks up the injected message
-                return args.agent 
-                  ? `Session compacting... message will be sent to ${args.agent} agent after compaction completes`
-                  : "Session compacting... message queued to send after compaction completes"
+                // Note: Compact mode does not support agent switching yet
+                // Would need separate implementation with session.idle pattern
+                return "Session compacted (Note: agent parameter not supported in compact mode yet)"
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
