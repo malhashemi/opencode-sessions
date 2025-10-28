@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/malhashemi/opencode-sessions/compare/v0.0.5...v0.0.6) (2025-10-28)
+
+
+### Features
+
+* implement session.idle pattern for reliable agent switching ([192fd09](https://github.com/malhashemi/opencode-sessions/commit/192fd092f5dc781d9959a0f38dfb42febe96d737))
+
 ## [0.0.5](https://github.com/malhashemi/opencode-sessions/compare/v0.0.4...v0.0.5) (2025-10-27)
 
 
