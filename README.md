@@ -222,11 +222,11 @@ The plugin automatically discovers your configured agents:
 
 ```typescript
 // Built-in agents (always available):
-;-build - // Full development capabilities with all tools
-  plan - // Analysis and planning (read-only tools)
-  // Plus any custom agents from your configuration
-  researcher - // Research and investigation
-  -implement // Implementation-focused
+- build -      // Full development capabilities with all tools
+- plan -       // Analysis and planning (read-only tools)
+// Plus any custom agents from your configuration
+- researcher - // Research and investigation
+- implement -  // Implementation-focused
 ```
 
 Use Tab in OpenCode to see all available agents.
