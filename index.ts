@@ -21,34 +21,8 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { join } from "path"
 import { readdir } from "fs/promises"
-import { appendFileSync, mkdirSync } from "fs"
 import os from "os"
 import matter from "gray-matter"
-
-/**
- * Helper function to write logs to .opencode/logs/session-plugin.log
- */
-function log(message: string, data?: any): void {
-  try {
-    const timestamp = new Date().toISOString()
-    const logDir = join(process.cwd(), ".opencode", "logs")
-    const logFile = join(logDir, "session-plugin.log")
-    
-    // Ensure log directory exists
-    try {
-      mkdirSync(logDir, { recursive: true })
-    } catch {}
-    
-    const logLine = data 
-      ? `[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n`
-      : `[${timestamp}] ${message}\n`
-    
-    appendFileSync(logFile, logLine)
-  } catch (error) {
-    // Fallback to console if file write fails
-    console.error('[session-plugin] Failed to write log:', error)
-  }
-}
 
 interface AgentInfo {
   name: string
@@ -338,82 +312,50 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                log('=== COMPACT MODE START ===')
-                log('Session ID:', { sessionID: toolCtx.sessionID })
-                log('Agent parameter:', { agent: args.agent })
-                log('Text parameter:', { text: args.text })
+                // Get session messages to determine current model
+                const msgs = await ctx.client.session.messages({
+                  path: { id: toolCtx.sessionID }
+                })
                 
-                try {
-                  // Inject handoff context message (survives compaction)
-                  log('Injecting context message...')
-                  await ctx.client.session.prompt({
-                    path: { id: toolCtx.sessionID },
-                    body: {
-                      noReply: true,
-                      parts: [{
-                        type: "text",
-                        text: args.agent 
-                          ? `[Compacting session - ${args.agent} agent will respond after completion]`
-                          : "[Compacting session - response will continue after completion]"
-                      }]
-                    }
-                  })
-                  log('Context message injected successfully')
-                  
-                  // Trigger compaction directly via API
-                  log('Calling session.summarize (no body parameters)...')
-                  const startTime = Date.now()
-                  
-                  const result = await ctx.client.session.summarize({
-                    path: { id: toolCtx.sessionID }
-                  })
-                  
-                  const duration = Date.now() - startTime
-                  log('session.summarize returned', { 
-                    result, 
-                    duration_ms: duration 
-                  })
-                  
-                  // Verify compaction happened
-                  log('Fetching messages to verify compaction...')
-                  const msgs = await ctx.client.session.messages({
-                    path: { id: toolCtx.sessionID }
-                  })
-                  
-                  log('Post-compaction state', {
-                    total_messages: msgs.data.length,
-                    assistant_messages: msgs.data.filter(m => m.info.role === "assistant").length,
-                    user_messages: msgs.data.filter(m => m.info.role === "user").length,
-                  })
-                  
-                  // Check for compacted messages
-                  const compactedMsgs = msgs.data.filter(m => 
-                    m.info.role === "assistant" && (m.info as any).summary === true
-                  )
-                  log('Compacted messages found:', {
-                    count: compactedMsgs.length,
-                    message_ids: compactedMsgs.map(m => m.info.id)
-                  })
-                  
-                  log('=== COMPACT MODE END (SUCCESS) ===\n')
-                  
-                  // Message stored in tool.execute.before will be sent via session.idle
-                  return args.agent 
-                    ? `Compacting session... ${args.agent} agent will respond after completion.`
-                    : "Compacting session... response will continue after completion."
-                    
-                } catch (error) {
-                  log('=== COMPACT MODE ERROR ===', {
-                    error_type: typeof error,
-                    error_name: error instanceof Error ? error.constructor.name : 'unknown',
-                    error_message: error instanceof Error ? error.message : String(error),
-                    error_stack: error instanceof Error ? error.stack : undefined,
-                    full_error: error
-                  })
-                  log('=== COMPACT MODE END (FAILED) ===\n')
-                  
-                  throw error // Re-throw to be caught by outer try-catch
+                // Find last assistant message to get model info
+                const assistantMsgs = msgs.data.filter(m => m.info.role === "assistant")
+                const lastAssistant = assistantMsgs[assistantMsgs.length - 1]
+                
+                if (!lastAssistant || lastAssistant.info.role !== "assistant") {
+                  return "Error: No assistant messages found in session. Cannot determine model for compaction."
                 }
+                
+                // Extract model info from last assistant message
+                const providerID = lastAssistant.info.providerID
+                const modelID = lastAssistant.info.modelID
+                
+                // Inject handoff context message (survives compaction)
+                await ctx.client.session.prompt({
+                  path: { id: toolCtx.sessionID },
+                  body: {
+                    noReply: true,
+                    parts: [{
+                      type: "text",
+                      text: args.agent 
+                        ? `[Compacting session - ${args.agent} agent will respond after completion]`
+                        : "[Compacting session - response will continue after completion]"
+                    }]
+                  }
+                })
+                
+                // Trigger compaction with model parameters
+                await ctx.client.session.summarize({
+                  path: { id: toolCtx.sessionID },
+                  body: {
+                    providerID: providerID,
+                    modelID: modelID
+                  }
+                })
+                
+                // Message stored in tool.execute.before will be sent via session.idle
+                return args.agent 
+                  ? `Compacting session with ${providerID}/${modelID}... ${args.agent} agent will respond after completion.`
+                  : `Compacting session with ${providerID}/${modelID}... response will continue after completion.`
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
