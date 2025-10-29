@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.12](https://github.com/malhashemi/opencode-sessions/compare/v0.0.11...v0.0.12) (2025-10-29)
+
+
+### Bug Fixes
+
+* properly handle SessionLockedError in compaction ([814c4eb](https://github.com/malhashemi/opencode-sessions/commit/814c4eba9db0c8737ec847f25cdf8875f946a112))
+* resolve SessionLockedError in compact mode with async flow ([a609fa6](https://github.com/malhashemi/opencode-sessions/commit/a609fa6d74dfb8232cf3f4e2383f5fba22739657))
+
 ## [0.0.11](https://github.com/malhashemi/opencode-sessions/compare/v0.0.10...v0.0.11) (2025-10-29)
 
 
