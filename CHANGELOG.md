@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.10](https://github.com/malhashemi/opencode-sessions/compare/v0.0.9...v0.0.10) (2025-10-29)
+
+
+### Bug Fixes
+
+* pass providerID and modelID to session.summarize for successful compaction ([610b997](https://github.com/malhashemi/opencode-sessions/commit/610b997eb505deb73f02de7eec65a755ae31987a))
+
 ## [0.0.9](https://github.com/malhashemi/opencode-sessions/compare/v0.0.8...v0.0.9) (2025-10-29)
 
 
