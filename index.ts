@@ -310,15 +310,8 @@ EXAMPLES:
                 })
                 
                 // Trigger compaction directly via API (more reliable than TUI command)
-                // Uses current session's provider/model automatically
                 await ctx.client.session.summarize({
-                  path: { id: toolCtx.sessionID },
-                  body: {
-                    // Defaults to Anthropic's latest Claude model
-                    // OpenCode will use session's actual provider/model if available
-                    providerID: "anthropic",
-                    modelID: "claude-3-5-sonnet-20241022"
-                  }
+                  path: { id: toolCtx.sessionID }
                 })
                 
                 // Message stored in tool.execute.before will be sent via session.idle
