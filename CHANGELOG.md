@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.8](https://github.com/malhashemi/opencode-sessions/compare/0.0.7...v0.0.8) (2025-10-29)
+
+
+### Bug Fixes
+
+* use session.summarize() API instead of TUI command for compaction ([d6faf99](https://github.com/malhashemi/opencode-sessions/commit/d6faf99da6bcf08a6a44796966d72af5dc92c61a))
+
 ## [0.0.7](https://github.com/malhashemi/opencode-sessions/compare/v0.0.6...v0.0.7) (2025-10-29)
 
 
