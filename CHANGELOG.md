@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/malhashemi/opencode-sessions/compare/v0.0.14...v1.0.0) (2025-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* This marks the stable 1.0.0 release with production-ready code
+
+### Miscellaneous Chores
+
+* release v1.0.0 - production ready ([#37](https://github.com/malhashemi/opencode-sessions/issues/37)) ([5252713](https://github.com/malhashemi/opencode-sessions/commit/52527130997754456d3c06ad866c68dea35e07f5))
+
 ## [0.0.14](https://github.com/malhashemi/opencode-sessions/compare/v0.0.13...v0.0.14) (2025-10-29)
 
 
