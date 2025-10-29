@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.7](https://github.com/malhashemi/opencode-sessions/compare/v0.0.6...v0.0.7) (2025-10-29)
+
+
+### Features
+
+* add context injection to compact mode and remove context mode ([e4b76ae](https://github.com/malhashemi/opencode-sessions/commit/e4b76aeeb070ef591b5535f6e63277cccd800542))
+* enable agent switching for compact mode ([24dde8a](https://github.com/malhashemi/opencode-sessions/commit/24dde8a84efe15d73e3cbcb214ccd34286519860))
+
 ## [0.0.6](https://github.com/malhashemi/opencode-sessions/compare/v0.0.5...v0.0.6) (2025-10-28)
 
 
