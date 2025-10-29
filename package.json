@@ -1,6 +1,6 @@
 {
   "name": "opencode-sessions",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Session management plugin for OpenCode with multi-agent collaboration support",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
