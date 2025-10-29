@@ -21,8 +21,39 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { join } from "path"
 import { readdir } from "fs/promises"
+import { appendFileSync, mkdirSync } from "fs"
 import os from "os"
 import matter from "gray-matter"
+
+/**
+ * Helper function to write logs to .opencode/logs/session-plugin.log
+ */
+function log(message: string, data?: any): void {
+  try {
+    const timestamp = new Date().toISOString()
+    const logDir = join(process.cwd(), ".opencode", "logs")
+    const logFile = join(logDir, "session-plugin.log")
+    
+    // Ensure log directory exists
+    try {
+      mkdirSync(logDir, { recursive: true })
+    } catch {}
+    
+    const logLine = data 
+      ? `[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n`
+      : `[${timestamp}] ${message}\n`
+    
+    appendFileSync(logFile, logLine)
+  } catch (error) {
+    // Fallback to console if file write fails
+    console.error('[session-plugin] Failed to write log:', error)
+  }
+}
+
+interface AgentInfo {
+  name: string
+  description?: string
+}
 
 /**
  * Discover primary agents by scanning agent directories for markdown files
@@ -39,8 +70,8 @@ import matter from "gray-matter"
  * - Overridden by creating build.md or plan.md files
  * - Disabled via opencode.json with { agent: { build: { disable: true } } }
  */
-async function discoverAgents(projectDir: string): Promise<string[]> {
-  const agents: string[] = []
+async function discoverAgents(projectDir: string): Promise<AgentInfo[]> {
+  const agents: AgentInfo[] = []
   const disabledAgents = new Set<string>()
   
   // Determine XDG config paths
@@ -81,10 +112,14 @@ async function discoverAgents(projectDir: string): Promise<string[]> {
           if (mode === "primary" || mode === "all") {
             // Extract agent name from filename (remove .md extension)
             const agentName = file.replace(/\.md$/, '')
+            const agentDescription = data.description
             
             // Add to list if not already present
-            if (!agents.includes(agentName)) {
-              agents.push(agentName)
+            if (!agents.some(a => a.name === agentName)) {
+              agents.push({
+                name: agentName,
+                description: agentDescription
+              })
             }
           }
         } catch (error) {
@@ -100,8 +135,13 @@ async function discoverAgents(projectDir: string): Promise<string[]> {
   
   // Add built-in agents if they weren't overridden by .md files
   for (const builtIn of ["build", "plan"]) {
-    if (!agents.includes(builtIn)) {
-      agents.unshift(builtIn) // Add to front of list
+    if (!agents.some(a => a.name === builtIn)) {
+      agents.unshift({
+        name: builtIn,
+        description: builtIn === "build"
+          ? "General-purpose implementation agent for building features and fixing bugs"
+          : "Strategic planning agent for architecture and design decisions"
+      })
     }
   }
   
@@ -130,14 +170,17 @@ async function discoverAgents(projectDir: string): Promise<string[]> {
   }
   
   // Filter out disabled agents
-  return agents.filter(name => !disabledAgents.has(name))
+  return agents.filter(agent => !disabledAgents.has(agent.name))
 }
 
 export const SessionPlugin: Plugin = async (ctx) => {
   // Discover agents from filesystem (no blocking API calls!)
   const agents = await discoverAgents(ctx.directory)
   const agentList = agents
-    .map(name => `  • ${name}`)
+    .map(agent => {
+      const desc = agent.description || "No description available"
+      return `  • ${agent.name} - ${desc}`
+    })
     .join("\n")
   
   // Store pending messages for agent relay communication
@@ -295,29 +338,82 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                // Inject handoff context message (survives compaction)
-                await ctx.client.session.prompt({
-                  path: { id: toolCtx.sessionID },
-                  body: {
-                    noReply: true,
-                    parts: [{
-                      type: "text",
-                      text: args.agent 
-                        ? `[Compacting session - ${args.agent} agent will respond after completion]`
-                        : "[Compacting session - response will continue after completion]"
-                    }]
-                  }
-                })
+                log('=== COMPACT MODE START ===')
+                log('Session ID:', { sessionID: toolCtx.sessionID })
+                log('Agent parameter:', { agent: args.agent })
+                log('Text parameter:', { text: args.text })
                 
-                // Trigger compaction directly via API (more reliable than TUI command)
-                await ctx.client.session.summarize({
-                  path: { id: toolCtx.sessionID }
-                })
-                
-                // Message stored in tool.execute.before will be sent via session.idle
-                return args.agent 
-                  ? `Compacting session... ${args.agent} agent will respond after completion.`
-                  : "Compacting session... response will continue after completion."
+                try {
+                  // Inject handoff context message (survives compaction)
+                  log('Injecting context message...')
+                  await ctx.client.session.prompt({
+                    path: { id: toolCtx.sessionID },
+                    body: {
+                      noReply: true,
+                      parts: [{
+                        type: "text",
+                        text: args.agent 
+                          ? `[Compacting session - ${args.agent} agent will respond after completion]`
+                          : "[Compacting session - response will continue after completion]"
+                      }]
+                    }
+                  })
+                  log('Context message injected successfully')
+                  
+                  // Trigger compaction directly via API
+                  log('Calling session.summarize (no body parameters)...')
+                  const startTime = Date.now()
+                  
+                  const result = await ctx.client.session.summarize({
+                    path: { id: toolCtx.sessionID }
+                  })
+                  
+                  const duration = Date.now() - startTime
+                  log('session.summarize returned', { 
+                    result, 
+                    duration_ms: duration 
+                  })
+                  
+                  // Verify compaction happened
+                  log('Fetching messages to verify compaction...')
+                  const msgs = await ctx.client.session.messages({
+                    path: { id: toolCtx.sessionID }
+                  })
+                  
+                  log('Post-compaction state', {
+                    total_messages: msgs.data.length,
+                    assistant_messages: msgs.data.filter(m => m.info.role === "assistant").length,
+                    user_messages: msgs.data.filter(m => m.info.role === "user").length,
+                  })
+                  
+                  // Check for compacted messages
+                  const compactedMsgs = msgs.data.filter(m => 
+                    m.info.role === "assistant" && (m.info as any).summary === true
+                  )
+                  log('Compacted messages found:', {
+                    count: compactedMsgs.length,
+                    message_ids: compactedMsgs.map(m => m.info.id)
+                  })
+                  
+                  log('=== COMPACT MODE END (SUCCESS) ===\n')
+                  
+                  // Message stored in tool.execute.before will be sent via session.idle
+                  return args.agent 
+                    ? `Compacting session... ${args.agent} agent will respond after completion.`
+                    : "Compacting session... response will continue after completion."
+                    
+                } catch (error) {
+                  log('=== COMPACT MODE ERROR ===', {
+                    error_type: typeof error,
+                    error_name: error instanceof Error ? error.constructor.name : 'unknown',
+                    error_message: error instanceof Error ? error.message : String(error),
+                    error_stack: error instanceof Error ? error.stack : undefined,
+                    full_error: error
+                  })
+                  log('=== COMPACT MODE END (FAILED) ===\n')
+                  
+                  throw error // Re-throw to be caught by outer try-catch
+                }
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
