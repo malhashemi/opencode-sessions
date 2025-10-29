@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.14](https://github.com/malhashemi/opencode-sessions/compare/v0.0.13...v0.0.14) (2025-10-29)
+
+
+### Bug Fixes
+
+* use natural completion pattern for compact mode instead of aborts ([0662f14](https://github.com/malhashemi/opencode-sessions/commit/0662f1412fc3905b3703fa7432a38d023cbfbf54))
+
 ## [0.0.13](https://github.com/malhashemi/opencode-sessions/compare/v0.0.12...v0.0.13) (2025-10-29)
 
 
