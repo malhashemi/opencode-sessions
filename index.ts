@@ -183,9 +183,24 @@ export const SessionPlugin: Plugin = async (ctx) => {
     })
     .join("\n")
   
-  // Store pending messages for agent relay communication
-  // Map<sessionID, { agent?, text }>
+  // State machine for compaction flow
+  type CompactionState = {
+    phase: 'waiting_for_first_abort' | 'compacting' | 'waiting_for_compaction_complete' | 'compaction_done' | 'ready_to_send'
+    providerID: string
+    modelID: string
+    agent?: string
+    text: string
+  }
+  const compactionState = new Map<string, CompactionState>()
+  
+  // Store pending messages for agent relay communication (message mode only)
   const pendingMessages = new Map<string, { agent?: string, text: string }>()
+  
+  // Store tool call IDs for compact mode
+  const compactCalls = new Map<string, string>() // callID -> sessionID
+  
+  // Store metadata for compact mode
+  const compactMetadata = new Map<string, { providerID: string, modelID: string, agent?: string, text: string }>()
   
   return {
     // Hook: Before tool execution - save args for message and compact modes
@@ -193,23 +208,180 @@ export const SessionPlugin: Plugin = async (ctx) => {
       if (input.tool === "session") {
         const args = output.args as { mode: string, text: string, agent?: string }
         
-        if (args.mode === "message" || args.mode === "compact") {
+        if (args.mode === "message") {
           // Store message for later - will be sent on session.idle event
           pendingMessages.set(input.sessionID, {
             agent: args.agent,
             text: args.text
           })
+          log('[tool.execute.before] Message mode: stored pending message', {
+            sessionID: input.sessionID,
+            agent: args.agent
+          })
+        } else if (args.mode === "compact") {
+          // Track compact calls for tool.execute.after
+          compactCalls.set(input.callID, input.sessionID)
+          log('[tool.execute.before] Compact mode: tracked call', {
+            callID: input.callID,
+            sessionID: input.sessionID
+          })
         }
       }
     },
     
-    // Hook: Listen for session.idle event to send queued messages
+    // Hook: After tool execution - handle compact mode with abort
+    "tool.execute.after": async (input, output) => {
+      const sessionID = compactCalls.get(input.callID)
+      
+      if (sessionID) {
+        const metadata = compactMetadata.get(sessionID)
+        
+        if (metadata) {
+          log('=== TOOL.EXECUTE.AFTER: Compact mode detected ===', {
+            callID: input.callID,
+            sessionID,
+            metadata
+          })
+          
+          // Store compaction state
+          compactionState.set(sessionID, {
+            phase: 'waiting_for_first_abort',
+            providerID: metadata.providerID,
+            modelID: metadata.modelID,
+            agent: metadata.agent,
+            text: metadata.text
+          })
+          
+          log('[tool.execute.after] Stored compaction state', compactionState.get(sessionID))
+          
+          // Clean up call tracking and metadata
+          compactCalls.delete(input.callID)
+          compactMetadata.delete(sessionID)
+          
+          // Wait 100ms for agent to finish processing tool result
+          log('[tool.execute.after] Waiting 100ms before first abort...')
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+          // Abort #1: Stop the agent
+          log('[tool.execute.after] Calling first abort to stop agent...')
+          try {
+            await ctx.client.session.abort({
+              path: { id: sessionID }
+            })
+            log('[tool.execute.after] First abort succeeded, waiting for session.idle #1')
+          } catch (error) {
+            log('[tool.execute.after] First abort failed', error)
+            // Clean up state on error
+            compactionState.delete(sessionID)
+          }
+        }
+      }
+    },
+    
+    // Hook: Listen for session.idle and session.compacted events
     event: async ({ event }) => {
+      // Type guard for events with sessionID
+      if (!('properties' in event) || !('sessionID' in event.properties)) {
+        return
+      }
+      
+      const sessionID = event.properties.sessionID as string
+      
+      // ===== COMPACTION FLOW: Handle session.idle =====
       if (event.type === "session.idle") {
-        const sessionID = event.properties.sessionID
+        const state = compactionState.get(sessionID)
+        
+        // IDLE #1: After first abort - start compaction
+        if (state?.phase === 'waiting_for_first_abort') {
+          log('=== EVENT: session.idle #1 - Starting compaction ===', { sessionID })
+          state.phase = 'compacting'
+          
+          try {
+            log('[event] Calling session.summarize', {
+              providerID: state.providerID,
+              modelID: state.modelID
+            })
+            
+            await ctx.client.session.summarize({
+              path: { id: sessionID },
+              body: {
+                providerID: state.providerID,
+                modelID: state.modelID
+              }
+            })
+            
+            state.phase = 'waiting_for_compaction_complete'
+            log('[event] Compaction started, waiting for session.compacted event')
+          } catch (error) {
+            log('[event] Compaction failed', error)
+            compactionState.delete(sessionID)
+          }
+          return
+        }
+        
+        // IDLE #2: After second abort - send message
+        if (state?.phase === 'ready_to_send') {
+          log('=== EVENT: session.idle #2 - Sending message ===', {
+            sessionID,
+            agent: state.agent,
+            text: state.text
+          })
+          
+          try {
+            await ctx.client.session.prompt({
+              path: { id: sessionID },
+              body: {
+                agent: state.agent,
+                parts: [{ type: "text", text: state.text }]
+              }
+            })
+            log('[event] Message sent successfully, cleaning up state')
+          } catch (error) {
+            log('[event] Failed to send message', error)
+          } finally {
+            compactionState.delete(sessionID)
+          }
+          return
+        }
+      }
+      
+      // ===== COMPACTION FLOW: Handle session.compacted =====
+      if (event.type === "session.compacted") {
+        const state = compactionState.get(sessionID)
+        
+        if (state?.phase === 'waiting_for_compaction_complete') {
+          log('=== EVENT: session.compacted - Compaction done! ===', { sessionID })
+          state.phase = 'compaction_done'
+          
+          // Wait 100ms for lock to fully release
+          log('[event] Waiting 100ms for lock to fully release...')
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+          // Abort #2: Ensure clean state
+          log('[event] Calling second abort immediately after compaction')
+          try {
+            await ctx.client.session.abort({
+              path: { id: sessionID }
+            })
+            state.phase = 'ready_to_send'
+            log('[event] Second abort succeeded, ready to send message on next idle')
+          } catch (error) {
+            log('[event] Second abort failed', error)
+            compactionState.delete(sessionID)
+          }
+        }
+      }
+      
+      // ===== MESSAGE MODE: Handle session.idle for normal message relay =====
+      if (event.type === "session.idle") {
         const pending = pendingMessages.get(sessionID)
         
         if (pending) {
+          log('=== EVENT: session.idle - Message mode ===', {
+            sessionID,
+            agent: pending.agent
+          })
+          
           // Remove from queue
           pendingMessages.delete(sessionID)
           
@@ -222,8 +394,9 @@ export const SessionPlugin: Plugin = async (ctx) => {
                 parts: [{ type: "text", text: pending.text }]
               }
             })
+            log('[event] Message mode: message sent successfully')
           } catch (error) {
-            console.error('[session-plugin] Failed to send message on session.idle:', error)
+            log('[event] Message mode: failed to send message', error)
           }
         }
       }
@@ -391,73 +564,29 @@ EXAMPLES:
                       }]
                     }
                   })
-                  log('Context message injected successfully')
+                  log('[tool.execute] Context message injected successfully')
                   
-                  // Trigger compaction with model parameters
-                  log('Calling session.summarize with model parameters...')
-                  log('Request body:', { providerID, modelID })
-                  const startTime = Date.now()
-                  
-                  const result = await ctx.client.session.summarize({
-                    path: { id: toolCtx.sessionID },
-                    body: {
-                      providerID,
-                      modelID
-                    }
+                  // Store metadata in map for tool.execute.after hook (using sessionID as key)
+                  // DO NOT call session.summarize() here - causes SessionLockedError!
+                  compactMetadata.set(toolCtx.sessionID, {
+                    providerID,
+                    modelID,
+                    agent: args.agent,
+                    text: args.text
                   })
                   
-                  const duration = Date.now() - startTime
-                  log('session.summarize returned', { 
-                    result, 
-                    duration_ms: duration 
+                  log('[tool.execute] Stored metadata for tool.execute.after', {
+                    sessionID: toolCtx.sessionID,
+                    providerID,
+                    modelID,
+                    agent: args.agent
                   })
+                  log('=== COMPACT MODE END (returning) ===\n')
                   
-                  // Check if summarize returned an error
-                  if (result.error) {
-                    log('session.summarize returned error:', result.error)
-                    
-                    // Check for SessionLockedError using type-safe approach
-                    const errorObj = result.error as any
-                    if (errorObj.name === 'SessionLockedError' || errorObj.data?.message?.includes('locked')) {
-                      log('=== COMPACT MODE END (FAILED - SESSION LOCKED) ===\n')
-                      return "Error: Cannot compact session while it is active. Session compaction can only be performed when the session is idle."
-                    }
-                    
-                    log('=== COMPACT MODE END (FAILED - API ERROR) ===\n')
-                    const errorMessage = errorObj.data?.message || errorObj.message || 'Unknown error'
-                    throw new Error(`Compaction failed: ${errorObj.name || 'APIError'} - ${errorMessage}`)
-                  }
-                  
-                  // Verify compaction happened
-                  log('Fetching messages to verify compaction...')
-                  const msgsAfter = await ctx.client.session.messages({
-                    path: { id: toolCtx.sessionID }
-                  })
-                  
-                  log('Post-compaction state', {
-                    total_messages: msgsAfter.data.length,
-                    assistant_messages: msgsAfter.data.filter(m => m.info.role === "assistant").length,
-                    user_messages: msgsAfter.data.filter(m => m.info.role === "user").length,
-                    message_count_before: msgs.data.length,
-                    message_count_after: msgsAfter.data.length,
-                    compaction_occurred: msgs.data.length > msgsAfter.data.length
-                  })
-                  
-                  // Check for compacted messages
-                  const compactedMsgs = msgsAfter.data.filter(m => 
-                    m.info.role === "assistant" && (m.info as any).summary === true
-                  )
-                  log('Compacted messages found:', {
-                    count: compactedMsgs.length,
-                    message_ids: compactedMsgs.map(m => m.info.id)
-                  })
-                  
-                  log('=== COMPACT MODE END (SUCCESS) ===\n')
-                  
-                  // Message stored in tool.execute.before will be sent via session.idle
+                  // Return immediately - compaction will happen asynchronously via events
                   return args.agent 
-                    ? `Compacting session with ${providerID}/${modelID}... ${args.agent} agent will respond after completion.`
-                    : `Compacting session with ${providerID}/${modelID}... response will continue after completion.`
+                    ? `Compacting session and handing off to ${args.agent}. This will complete shortly.`
+                    : `Compacting session. This will complete shortly.`
                     
                 } catch (error) {
                   log('=== COMPACT MODE ERROR ===', {
