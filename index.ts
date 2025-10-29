@@ -145,12 +145,12 @@ export const SessionPlugin: Plugin = async (ctx) => {
   const pendingMessages = new Map<string, { agent?: string, text: string }>()
   
   return {
-    // Hook: Before tool execution - save args for message mode
+    // Hook: Before tool execution - save args for message and compact modes
     "tool.execute.before": async (input, output) => {
       if (input.tool === "session") {
         const args = output.args as { mode: string, text: string, agent?: string }
         
-        if (args.mode === "message") {
+        if (args.mode === "message" || args.mode === "compact") {
           // Store message for later - will be sent on session.idle event
           pendingMessages.set(input.sessionID, {
             agent: args.agent,
@@ -198,7 +198,7 @@ MODE OPTIONS:
 
 • new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase. Can trigger slash commands in clean state.
 
-• compact - Compress session history to free tokens, then inject message silently. The compaction process automatically triggers inference which picks up the injected message. Use during long conversations when approaching token limits but need to preserve context for ongoing work.
+• compact - Compress session history to free tokens, then send message. Message is sent after compaction completes. Use during long conversations when approaching token limits but need to preserve context for ongoing work. Supports agent switching.
 
 • fork - Branch into child session from current point to explore alternatives. Parent session unchanged. Use to experiment with different approaches, test solutions, or explore "what if" scenarios without risk.
 
@@ -287,14 +287,15 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                // Trigger compact command
+                // Trigger compact command - message stored in tool.execute.before hook
+                // Will be sent after compaction completes via session.idle event
                 await ctx.client.tui.executeCommand({ 
                   body: { command: "session_compact" }
                 })
                 
-                // Note: Compact mode does not support agent switching yet
-                // Would need separate implementation with session.idle pattern
-                return "Session compacted (Note: agent parameter not supported in compact mode yet)"
+                return args.agent 
+                  ? `Session compacting... ${args.agent} agent will respond after completion.`
+                  : "Session compacting... message will be sent after completion."
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
