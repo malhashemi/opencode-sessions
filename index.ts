@@ -1,8 +1,8 @@
 /**
  * OpenCode Session Management Plugin
- * 
+ *
  * Unified session tool with agent switching for workflow orchestration.
- * 
+ *
  * Features:
  * - Context injection (silent, no AI response)
  * - New session creation with agent selection
@@ -10,8 +10,8 @@
  * - Session forking (safe experimentation)
  * - Agent-to-agent handoffs
  * - Multi-agent collaboration
- * 
- * @version 0.0.6
+ *
+ * @version 1.0.0
  * @license MIT
  * @author M. Adel Alhashemi
  * @see https://github.com/malhashemi/opencode-sessions
@@ -21,34 +21,8 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { join } from "path"
 import { readdir } from "fs/promises"
-import { appendFileSync, mkdirSync } from "fs"
 import os from "os"
 import matter from "gray-matter"
-
-/**
- * Helper function to write logs to .opencode/logs/session-plugin.log
- */
-function log(message: string, data?: any): void {
-  try {
-    const timestamp = new Date().toISOString()
-    const logDir = join(process.cwd(), ".opencode", "logs")
-    const logFile = join(logDir, "session-plugin.log")
-    
-    // Ensure log directory exists
-    try {
-      mkdirSync(logDir, { recursive: true })
-    } catch {}
-    
-    const logLine = data 
-      ? `[${timestamp}] ${message}\n${JSON.stringify(data, null, 2)}\n`
-      : `[${timestamp}] ${message}\n`
-    
-    appendFileSync(logFile, logLine)
-  } catch (error) {
-    // Fallback to console if file write fails
-    console.error('[session-plugin] Failed to write log:', error)
-  }
-}
 
 interface AgentInfo {
   name: string
@@ -58,14 +32,14 @@ interface AgentInfo {
 /**
  * Discover primary agents by scanning agent directories for markdown files
  * and checking opencode.json for disabled agents.
- * 
+ *
  * Agent discovery process:
  * 1. Scans ~/.config/opencode/agent/ and .opencode/agent/ for .md files
  * 2. Parses YAML frontmatter to find agents with mode: "primary" or "all"
  * 3. Adds built-in agents (build, plan) if not overridden by .md files
  * 4. Checks opencode.json files for disabled agents
  * 5. Returns list of enabled primary agents
- * 
+ *
  * Note: Built-in agents (build, plan) can be:
  * - Overridden by creating build.md or plan.md files
  * - Disabled via opencode.json with { agent: { build: { disable: true } } }
@@ -73,52 +47,52 @@ interface AgentInfo {
 async function discoverAgents(projectDir: string): Promise<AgentInfo[]> {
   const agents: AgentInfo[] = []
   const disabledAgents = new Set<string>()
-  
+
   // Determine XDG config paths
   const xdgConfigHome = process.env.XDG_CONFIG_HOME
   const xdgBase = xdgConfigHome
     ? join(xdgConfigHome, "opencode")
     : join(os.homedir(), ".config/opencode")
-  
+
   const agentDirs = [
-    join(xdgBase, "agent"),              // XDG config agents
+    join(xdgBase, "agent"), // XDG config agents
     join(projectDir, ".opencode/agent"), // Project-local agents
   ]
-  
+
   const configPaths = [
-    join(xdgBase, "opencode.json"),              // XDG config
+    join(xdgBase, "opencode.json"), // XDG config
     join(projectDir, ".opencode/opencode.json"), // Project-local config
   ]
-  
+
   // First, discover all primary agents from markdown files
   for (const agentDir of agentDirs) {
     try {
       const files = await readdir(agentDir)
-      
+
       for (const file of files) {
         // Only process markdown files
-        if (!file.endsWith('.md')) continue
-        
+        if (!file.endsWith(".md")) continue
+
         try {
           // Read file content
           const filePath = join(agentDir, file)
           const content = await Bun.file(filePath).text()
-          
+
           // Parse YAML frontmatter
           const { data } = matter(content)
-          
+
           // Check if this is a primary agent
           const mode = data.mode
           if (mode === "primary" || mode === "all") {
             // Extract agent name from filename (remove .md extension)
-            const agentName = file.replace(/\.md$/, '')
+            const agentName = file.replace(/\.md$/, "")
             const agentDescription = data.description
-            
+
             // Add to list if not already present
-            if (!agents.some(a => a.name === agentName)) {
+            if (!agents.some((a) => a.name === agentName)) {
               agents.push({
                 name: agentName,
-                description: agentDescription
+                description: agentDescription,
               })
             }
           }
@@ -132,26 +106,27 @@ async function discoverAgents(projectDir: string): Promise<AgentInfo[]> {
       // This is expected - not all paths will have agent directories
     }
   }
-  
+
   // Add built-in agents if they weren't overridden by .md files
   for (const builtIn of ["build", "plan"]) {
-    if (!agents.some(a => a.name === builtIn)) {
+    if (!agents.some((a) => a.name === builtIn)) {
       agents.unshift({
         name: builtIn,
-        description: builtIn === "build"
-          ? "General-purpose implementation agent for building features and fixing bugs"
-          : "Strategic planning agent for architecture and design decisions"
+        description:
+          builtIn === "build"
+            ? "General-purpose implementation agent for building features and fixing bugs"
+            : "Strategic planning agent for architecture and design decisions",
       })
     }
   }
-  
+
   // Second, check opencode.json files for disabled agents
   for (const configPath of configPaths) {
     try {
       const file = Bun.file(configPath)
       if (await file.exists()) {
         const config = await file.json()
-        
+
         // Check for disabled agents
         if (config.agent && typeof config.agent === "object") {
           for (const [name, agentConfig] of Object.entries(config.agent)) {
@@ -168,21 +143,21 @@ async function discoverAgents(projectDir: string): Promise<AgentInfo[]> {
       // Silently skip files that don't exist or can't be parsed
     }
   }
-  
+
   // Filter out disabled agents
-  return agents.filter(agent => !disabledAgents.has(agent.name))
+  return agents.filter((agent) => !disabledAgents.has(agent.name))
 }
 
 export const SessionPlugin: Plugin = async (ctx) => {
   // Discover agents from filesystem (no blocking API calls!)
   const agents = await discoverAgents(ctx.directory)
   const agentList = agents
-    .map(agent => {
+    .map((agent) => {
       const desc = agent.description || "No description available"
       return `  • ${agent.name} - ${desc}`
     })
     .join("\n")
-  
+
   // Type definitions for state management
   type CompactionRequest = {
     providerID: string
@@ -190,149 +165,131 @@ export const SessionPlugin: Plugin = async (ctx) => {
     agent?: string
     text: string
   }
-  
+
   type CompactionState = {
-    phase: 'compacting'
+    phase: "compacting"
     agent?: string
     text: string
   }
-  
+
   // Store pending messages for agent relay communication (message mode)
-  const pendingMessages = new Map<string, { agent?: string, text: string }>()
-  
+  const pendingMessages = new Map<string, { agent?: string; text: string }>()
+
   // Store pending compaction requests (compact mode)
   const pendingCompactions = new Map<string, CompactionRequest>()
-  
+
   // Store active compactions (during compaction process)
   const activeCompactions = new Map<string, CompactionState>()
-  
+
   return {
     // Hook: Before tool execution - save args for message mode
     "tool.execute.before": async (input, output) => {
       if (input.tool === "session") {
-        const args = output.args as { mode: string, text: string, agent?: string }
-        
+        const args = output.args as {
+          mode: string
+          text: string
+          agent?: string
+        }
+
         if (args.mode === "message") {
           // Store message for session.idle handler
           pendingMessages.set(input.sessionID, {
             agent: args.agent,
-            text: args.text
-          })
-          log('[tool.execute.before] Message mode: stored pending message', {
-            sessionID: input.sessionID,
-            agent: args.agent
+            text: args.text,
           })
         }
-        
+
         // Note: Compact mode storage happens in tool.execute()
         // No need to track here since we're not using tool.execute.after
       }
     },
-    
+
     // Hook: Listen for session.idle and session.compacted events
     event: async ({ event }) => {
       // Type guard for events with sessionID
-      if (!('properties' in event) || !('sessionID' in event.properties)) {
+      if (!("properties" in event) || !("sessionID" in event.properties)) {
         return
       }
-      
+
       const sessionID = event.properties.sessionID as string
-      
+
       // ===== Handle session.idle (both message and compact modes) =====
       if (event.type === "session.idle") {
-        
         // MESSAGE MODE: Send pending message
         const pendingMessage = pendingMessages.get(sessionID)
         if (pendingMessage) {
-          log('=== EVENT: session.idle - Message mode ===', { sessionID })
           pendingMessages.delete(sessionID)
-          
+
           try {
             await ctx.client.session.prompt({
               path: { id: sessionID },
               body: {
                 agent: pendingMessage.agent,
-                parts: [{ type: "text", text: pendingMessage.text }]
-              }
+                parts: [{ type: "text", text: pendingMessage.text }],
+              },
             })
-            log('[event] Message sent successfully')
           } catch (error) {
-            log('[event] Failed to send message', error)
+            // Silently fail - error handling could be added here if needed
           }
           return
         }
-        
+
         // COMPACT MODE: Start compaction (natural completion - no abort)
         const pendingCompaction = pendingCompactions.get(sessionID)
         if (pendingCompaction) {
-          log('=== EVENT: session.idle - Starting compaction (natural completion) ===', { sessionID })
           pendingCompactions.delete(sessionID)
-          
+
           // Store state for session.compacted handler
           activeCompactions.set(sessionID, {
-            phase: 'compacting',
+            phase: "compacting",
             agent: pendingCompaction.agent,
-            text: pendingCompaction.text
+            text: pendingCompaction.text,
           })
-          
-          log('[event] Calling session.summarize (fire-and-forget)', {
-            providerID: pendingCompaction.providerID,
-            modelID: pendingCompaction.modelID
-          })
-          
+
           // Start compaction (don't await - let it run async)
-          ctx.client.session.summarize({
-            path: { id: sessionID },
-            body: {
-              providerID: pendingCompaction.providerID,
-              modelID: pendingCompaction.modelID
-            }
-          }).catch(error => {
-            log('[event] Compaction failed (async error)', error)
-            activeCompactions.delete(sessionID)
-          })
-          
-          log('[event] Compaction started, waiting for session.compacted event')
+          ctx.client.session
+            .summarize({
+              path: { id: sessionID },
+              body: {
+                providerID: pendingCompaction.providerID,
+                modelID: pendingCompaction.modelID,
+              },
+            })
+            .catch((error) => {
+              activeCompactions.delete(sessionID)
+            })
+
           return
         }
       }
-      
+
       // ===== Handle session.compacted (send message immediately) =====
       if (event.type === "session.compacted") {
         const state = activeCompactions.get(sessionID)
-        
+
         if (state) {
-          log('=== EVENT: session.compacted - Compaction done! ===', { sessionID })
-          
           // Clean up state immediately
           activeCompactions.delete(sessionID)
-          
+
           // Wait 100ms for compaction lock to fully release
-          log('[event] Waiting 100ms for compaction lock to release...')
-          await new Promise(resolve => setTimeout(resolve, 100))
-          
+          await new Promise((resolve) => setTimeout(resolve, 100))
+
           // Send message immediately - no abort needed!
-          log('[event] Sending message immediately after compaction', {
-            agent: state.agent,
-            text_preview: state.text.substring(0, 50) + '...'
-          })
-          
           try {
             await ctx.client.session.prompt({
               path: { id: sessionID },
               body: {
                 agent: state.agent,
-                parts: [{ type: "text", text: state.text }]
-              }
+                parts: [{ type: "text", text: state.text }],
+              },
             })
-            log('[event] Message sent successfully after compaction ✅')
           } catch (error) {
-            log('[event] Failed to send message after compaction', error)
+            // Silently fail - error handling could be added here if needed
           }
         }
       }
     },
-    
+
     tool: {
       session: tool({
         description: `Multi-agent collaboration and workflow orchestration across sessions.
@@ -403,157 +360,144 @@ EXAMPLES:
   })
   # Two independent sessions, compare results
 `,
-        
+
         args: {
-          text: tool.schema.string().describe("The text to send in the session"),
-          mode: tool.schema.enum(["message", "new", "compact", "fork"]).describe("How to handle the session and text"),
-          agent: tool.schema.string().optional().describe("Primary agent name (e.g., 'build', 'plan') for agent switching"),
+          text: tool.schema
+            .string()
+            .describe("The text to send in the session"),
+          mode: tool.schema
+            .enum(["message", "new", "compact", "fork"])
+            .describe("How to handle the session and text"),
+          agent: tool.schema
+            .string()
+            .optional()
+            .describe(
+              "Primary agent name (e.g., 'build', 'plan') for agent switching",
+            ),
         },
-        
+
         async execute(args, toolCtx) {
           try {
-            switch(args.mode) {
+            switch (args.mode) {
               case "message":
                 // Message is stored in tool.execute.before hook
                 // Will be sent after session.idle event fires
-                return args.agent 
+                return args.agent
                   ? `Message sent to ${args.agent} agent. They will respond in this conversation.`
                   : "Message sent. Awaiting response in this conversation."
-                
+
               case "new":
                 // Create session via SDK for agent control
                 const newSession = await ctx.client.session.create({
-                  body: { 
-                    title: args.agent 
-                      ? `Session via ${args.agent}` 
-                      : "New session"
-                  }
+                  body: {
+                    title: args.agent
+                      ? `Session via ${args.agent}`
+                      : "New session",
+                  },
                 })
-                
+
                 // Send first message with specified agent
                 await ctx.client.session.prompt({
                   path: { id: newSession.data.id },
                   body: {
                     agent: args.agent || "build",
-                    parts: [{ type: "text", text: args.text }]
-                  }
+                    parts: [{ type: "text", text: args.text }],
+                  },
                 })
-                
+
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
-                
+
               case "compact":
-                log('=== COMPACT MODE START ===')
-                log('[compact] Session ID:', { sessionID: toolCtx.sessionID })
-                log('[compact] Agent parameter:', { agent: args.agent })
-                log('[compact] Text parameter:', { text: args.text })
-                
                 try {
                   // Get session messages to determine current model
-                  log('[compact] Fetching session messages...')
                   const msgs = await ctx.client.session.messages({
-                    path: { id: toolCtx.sessionID }
+                    path: { id: toolCtx.sessionID },
                   })
-                  
-                  log('[compact] Messages fetched:', {
-                    total: msgs.data.length,
-                    assistants: msgs.data.filter(m => m.info.role === "assistant").length
-                  })
-                  
+
                   // Find last assistant message to get model info
-                  const assistantMsgs = msgs.data.filter(m => m.info.role === "assistant")
+                  const assistantMsgs = msgs.data.filter(
+                    (m) => m.info.role === "assistant",
+                  )
                   const lastAssistant = assistantMsgs[assistantMsgs.length - 1]
-                  
-                  if (!lastAssistant || lastAssistant.info.role !== "assistant") {
-                    log('[compact] ERROR: No assistant messages found')
-                    log('=== COMPACT MODE END (FAILED) ===\n')
+
+                  if (
+                    !lastAssistant ||
+                    lastAssistant.info.role !== "assistant"
+                  ) {
                     return "Error: No assistant messages found in session. Cannot determine model for compaction."
                   }
-                  
+
                   // Extract model info from last assistant message
                   const providerID = lastAssistant.info.providerID
                   const modelID = lastAssistant.info.modelID
-                  
-                  log('[compact] Using model from last assistant:', {
-                    providerID,
-                    modelID
-                  })
-                  
+
                   // Inject context marker that survives compaction
-                  log('[compact] Injecting context marker...')
                   await ctx.client.session.prompt({
                     path: { id: toolCtx.sessionID },
                     body: {
                       noReply: true,
-                      parts: [{
-                        type: "text",
-                        text: args.agent 
-                          ? `[Session will compact after this response - ${args.agent} agent will continue]`
-                          : "[Session will compact after this response]"
-                      }]
-                    }
+                      parts: [
+                        {
+                          type: "text",
+                          text: args.agent
+                            ? `[Session will compact after this response - ${args.agent} agent will continue]`
+                            : "[Session will compact after this response]",
+                        },
+                      ],
+                    },
                   })
-                  log('[compact] Context marker injected')
-                  
+
                   // Store compaction request (will be processed on session.idle)
                   pendingCompactions.set(toolCtx.sessionID, {
                     providerID,
                     modelID,
                     agent: args.agent,
-                    text: args.text
+                    text: args.text,
                   })
-                  
-                  log('[compact] Compaction request stored, will execute after response completes')
-                  log('=== COMPACT MODE END (returning) ===\n')
-                  
+
                   // Return immediately - compaction happens after agent finishes naturally
-                  return args.agent 
+                  return args.agent
                     ? `I'll compact the session after completing this response, then hand off to ${args.agent}.`
                     : `I'll compact the session after completing this response.`
-                    
                 } catch (error) {
-                  log('=== COMPACT MODE ERROR ===', {
-                    error_message: error instanceof Error ? error.message : String(error),
-                    error_stack: error instanceof Error ? error.stack : undefined
-                  })
-                  log('=== COMPACT MODE END (FAILED) ===\n')
-                  
                   throw error // Re-throw to be caught by outer try-catch
                 }
-                
+
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
                 const forkedSession = await ctx.client.session.fork({
                   path: { id: toolCtx.sessionID },
-                  body: {}
+                  body: {},
                 })
-                
+
                 // Send new message in forked session
                 await ctx.client.session.prompt({
                   path: { id: forkedSession.data.id },
                   body: {
                     agent: args.agent || "build",
-                    parts: [{ type: "text", text: args.text }]
-                  }
+                    parts: [{ type: "text", text: args.text }],
+                  },
                 })
-                
+
                 return `Forked session with ${args.agent || "build"} agent - history preserved (ID: ${forkedSession.data.id})`
             }
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            
+            const message =
+              error instanceof Error ? error.message : String(error)
+
             // Show toast to user
             await ctx.client.tui.showToast({
               body: {
                 message: `Session operation failed: ${message}`,
                 variant: "error",
-              }
+              },
             })
-            
+
             // Return error to agent
             return `Error: ${message}`
           }
-        }
-      })
-    }
+        },
+      }),
+    },
   }
 }
