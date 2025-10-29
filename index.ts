@@ -188,23 +188,21 @@ export const SessionPlugin: Plugin = async (ctx) => {
     
     tool: {
       session: tool({
-        description: `Manage session context and conversation flow across different phases of work.
+        description: `Manage session context and conversation flow for agent relay communication.
 
 MODE OPTIONS:
 
-• message - Send message in current session and trigger AI response. Use for programmatic messaging, agent switching mid-conversation, or continuing discussion with different agent perspective.
+• message - Send message in current session and trigger AI response. Use for agent-to-agent relay communication, passing the torch between agents in the same conversation. Message is sent after current agent finishes.
 
-• context - Silently inject text without triggering AI response. Use to add instructions, constraints, or reference material mid-conversation while preserving flow. Note: agent parameter has no effect in context mode since noReply prevents agent inference.
+• new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase.
 
-• new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase. Can trigger slash commands in clean state.
-
-• compact - Compress session history to free tokens, then send message. Message is sent after compaction completes. Use during long conversations when approaching token limits but need to preserve context for ongoing work. Supports agent switching.
+• compact - Compress session history to free tokens, then send message. Injects handoff context before compaction, then sends message after compaction completes. Use during long conversations when approaching token limits but need to preserve context for ongoing work.
 
 • fork - Branch into child session from current point to explore alternatives. Parent session unchanged. Use to experiment with different approaches, test solutions, or explore "what if" scenarios without risk.
 
 AGENT PARAMETER (optional):
 
-Specify which primary agent handles the message. Enables agent-to-agent handoffs and multi-agent collaboration in same session.
+Specify which primary agent handles the message. Enables agent-to-agent relay communication in the same conversation.
 
 Available primary agents:
 ${agentList}
@@ -213,34 +211,37 @@ If omitted, uses current agent.
 
 EXAMPLES:
 
-  # Send message with agent switch and get response
+  # Agent relay - pass to plan agent
   session({ 
-    text: "What are the security implications?", 
+    text: "Should we use microservices here?", 
     mode: "message",
     agent: "plan"
   })
+  # Plan agent receives message as USER message and responds
   
-  # Silent context injection (no response)
-  session({ 
-    text: "Follow PEP 8 for all Python code", 
-    mode: "context"
+  # Agent relay with compaction
+  session({
+    text: "Continue architecture review",
+    mode: "compact",
+    agent: "plan"
   })
+  # Compacts history, then plan agent responds
   
   # Start new session for different phase
   session({
-    text: "/validate Check for security issues",
+    text: "Begin security audit",
     mode: "new", 
     agent: "plan"
   })
   
-  # Multi-agent discussion with responses
+  # Multi-agent relay conversation
   session({ text: "Implemented feature X", mode: "message", agent: "build" })
   session({ text: "Review feature X", mode: "message", agent: "plan" })
 `,
         
         args: {
-          text: tool.schema.string().describe("The text to send or inject into the session"),
-          mode: tool.schema.enum(["message", "context", "new", "compact", "fork"]).describe("How to handle the session and text"),
+          text: tool.schema.string().describe("The text to send in the session"),
+          mode: tool.schema.enum(["message", "new", "compact", "fork"]).describe("How to handle the session and text"),
           agent: tool.schema.string().optional().describe("Primary agent name (e.g., 'build', 'plan') for agent switching"),
         },
         
@@ -253,17 +254,6 @@ EXAMPLES:
                 return args.agent 
                   ? `Message sent to ${args.agent} agent. They will respond in this conversation.`
                   : "Message sent. Awaiting response in this conversation."
-                
-              case "context":
-                // Silent injection (agent parameter has no effect with noReply: true)
-                await ctx.client.session.prompt({
-                  path: { id: toolCtx.sessionID },
-                  body: { 
-                    noReply: true,
-                    parts: [{ type: "text", text: args.text }]
-                  }
-                })
-                return "Context injected silently into current session (Note: agent parameter has no effect with context mode)"
                 
               case "new":
                 // Create session via SDK for agent control
@@ -287,15 +277,29 @@ EXAMPLES:
                 return `New session created with ${args.agent || "build"} agent (ID: ${newSession.data.id})`
                 
               case "compact":
-                // Trigger compact command - message stored in tool.execute.before hook
-                // Will be sent after compaction completes via session.idle event
+                // Inject handoff context message (survives compaction)
+                await ctx.client.session.prompt({
+                  path: { id: toolCtx.sessionID },
+                  body: {
+                    noReply: true,
+                    parts: [{
+                      type: "text",
+                      text: args.agent 
+                        ? `[Compacting session - ${args.agent} agent will respond after completion]`
+                        : "[Compacting session - response will continue after completion]"
+                    }]
+                  }
+                })
+                
+                // Trigger compaction
                 await ctx.client.tui.executeCommand({ 
                   body: { command: "session_compact" }
                 })
                 
+                // Message stored in tool.execute.before will be sent via session.idle
                 return args.agent 
-                  ? `Session compacting... ${args.agent} agent will respond after completion.`
-                  : "Session compacting... message will be sent after completion."
+                  ? `Compacting session... ${args.agent} agent will respond after completion.`
+                  : "Compacting session... response will continue after completion."
                 
               case "fork":
                 // Use OpenCode's built-in fork API to copy message history
