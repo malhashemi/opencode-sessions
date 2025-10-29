@@ -294,28 +294,31 @@ export const SessionPlugin: Plugin = async (ctx) => {
         // IDLE #1: After first abort - start compaction
         if (state?.phase === 'waiting_for_first_abort') {
           log('=== EVENT: session.idle #1 - Starting compaction ===', { sessionID })
-          state.phase = 'compacting'
           
-          try {
-            log('[event] Calling session.summarize', {
+          log('[event] Calling session.summarize (async, no await)', {
+            providerID: state.providerID,
+            modelID: state.modelID
+          })
+          
+          // Fire and forget - don't await to avoid race condition
+          // The session.compacted event will fire when compaction completes
+          ctx.client.session.summarize({
+            path: { id: sessionID },
+            body: {
               providerID: state.providerID,
               modelID: state.modelID
-            })
-            
-            await ctx.client.session.summarize({
-              path: { id: sessionID },
-              body: {
-                providerID: state.providerID,
-                modelID: state.modelID
-              }
-            })
-            
-            state.phase = 'waiting_for_compaction_complete'
-            log('[event] Compaction started, waiting for session.compacted event')
-          } catch (error) {
-            log('[event] Compaction failed', error)
+            }
+          }).catch(error => {
+            // Handle errors without blocking
+            log('[event] Compaction failed (async error)', error)
             compactionState.delete(sessionID)
-          }
+          })
+          
+          // Set phase immediately so it's correct when session.compacted fires
+          state.phase = 'waiting_for_compaction_complete'
+          log('[event] Compaction started (async), waiting for session.compacted event')
+          log('[event] State phase updated to waiting_for_compaction_complete')
+          
           return
         }
         
@@ -348,6 +351,12 @@ export const SessionPlugin: Plugin = async (ctx) => {
       // ===== COMPACTION FLOW: Handle session.compacted =====
       if (event.type === "session.compacted") {
         const state = compactionState.get(sessionID)
+        
+        log('[event] session.compacted received', {
+          sessionID,
+          has_state: !!state,
+          current_phase: state?.phase
+        })
         
         if (state?.phase === 'waiting_for_compaction_complete') {
           log('=== EVENT: session.compacted - Compaction done! ===', { sessionID })
