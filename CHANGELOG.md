@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.11](https://github.com/malhashemi/opencode-sessions/compare/v0.0.10...v0.0.11) (2025-10-29)
+
+
+### Features
+
+* re-add comprehensive logging to diagnose compaction issues ([fdb8ae9](https://github.com/malhashemi/opencode-sessions/commit/fdb8ae946f83f4a360350b4530d6896f155de69a))
+
 ## [0.0.10](https://github.com/malhashemi/opencode-sessions/compare/v0.0.9...v0.0.10) (2025-10-29)
 
 
