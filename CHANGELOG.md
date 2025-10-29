@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.13](https://github.com/malhashemi/opencode-sessions/compare/v0.0.12...v0.0.13) (2025-10-29)
+
+
+### Bug Fixes
+
+* resolve session.compacted race condition with async flow ([8bf2178](https://github.com/malhashemi/opencode-sessions/commit/8bf217817fb911b231626fb9bdc572aeaf523cd0))
+
 ## [0.0.12](https://github.com/malhashemi/opencode-sessions/compare/v0.0.11...v0.0.12) (2025-10-29)
 
 
