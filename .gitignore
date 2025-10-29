@@ -22,10 +22,6 @@ node_modules/
 .pytest_cache
 thoughts/
 
-# External repositories directory (ignore cloned repos, track documentation and scripts)
-.extern/*
-!.extern/AGENTS.md
-!.extern/scripts/
-__pycache__/
+_pycache__/
 dist/
 *.tsbuildinfo
