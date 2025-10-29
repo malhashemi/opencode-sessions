@@ -412,6 +412,22 @@ EXAMPLES:
                     duration_ms: duration 
                   })
                   
+                  // Check if summarize returned an error
+                  if (result.error) {
+                    log('session.summarize returned error:', result.error)
+                    
+                    // Check for SessionLockedError using type-safe approach
+                    const errorObj = result.error as any
+                    if (errorObj.name === 'SessionLockedError' || errorObj.data?.message?.includes('locked')) {
+                      log('=== COMPACT MODE END (FAILED - SESSION LOCKED) ===\n')
+                      return "Error: Cannot compact session while it is active. Session compaction can only be performed when the session is idle."
+                    }
+                    
+                    log('=== COMPACT MODE END (FAILED - API ERROR) ===\n')
+                    const errorMessage = errorObj.data?.message || errorObj.message || 'Unknown error'
+                    throw new Error(`Compaction failed: ${errorObj.name || 'APIError'} - ${errorMessage}`)
+                  }
+                  
                   // Verify compaction happened
                   log('Fetching messages to verify compaction...')
                   const msgsAfter = await ctx.client.session.messages({
