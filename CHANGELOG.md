@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/malhashemi/opencode-sessions/compare/v0.0.8...v0.1.0) (2025-10-29)
+
+
+### Features
+
+* add agent descriptions and compact mode logging ([75166c4](https://github.com/malhashemi/opencode-sessions/commit/75166c413f5ecaafb71d693dcc98e96edb08ab44))
+
 ## [0.0.8](https://github.com/malhashemi/opencode-sessions/compare/0.0.7...v0.0.8) (2025-10-29)
 
 
