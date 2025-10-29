@@ -188,55 +188,73 @@ export const SessionPlugin: Plugin = async (ctx) => {
     
     tool: {
       session: tool({
-        description: `Manage session context and conversation flow for agent relay communication.
+        description: `Multi-agent collaboration and workflow orchestration across sessions.
 
-MODE OPTIONS:
+THE FOUR PILLARS:
 
-• message - Send message in current session and trigger AI response. Use for agent-to-agent relay communication, passing the torch between agents in the same conversation. Message is sent after current agent finishes.
+1. COLLABORATE (message) - Turn-based agent collaboration in same conversation
+   Agents work together, passing the torch back and forth. Perfect for complex
+   problems requiring multiple perspectives in a single thread.
 
-• new - Start fresh session with new message. Use when transitioning between work phases (e.g., research → implementation → validation), starting unrelated tasks, or when current context becomes irrelevant. Fresh context prevents previous discussion from influencing new phase.
+2. HANDOFF (new) - Clean phase transitions with fresh context
+   Complete one phase, hand off to another agent with a clean slate. No context
+   baggage from previous work. Research → Implementation → Validation.
 
-• compact - Compress session history to free tokens, then send message. Injects handoff context before compaction, then sends message after compaction completes. Use during long conversations when approaching token limits but need to preserve context for ongoing work.
+3. COMPRESS (compact) - Manual compression control with messaging and handoffs
+   Trigger compaction when needed, include a message, and optionally hand off
+   to a different agent. Maintain long conversations without token limits.
 
-• fork - Branch into child session from current point to explore alternatives. Parent session unchanged. Use to experiment with different approaches, test solutions, or explore "what if" scenarios without risk.
+4. PARALLELIZE (fork) - Explore multiple approaches simultaneously
+   Branch into independent sessions to try different solutions. Full primary
+   agent capabilities in each fork. Compare approaches, pick the best.
 
 AGENT PARAMETER (optional):
 
-Specify which primary agent handles the message. Enables agent-to-agent relay communication in the same conversation.
+Specify which primary agent handles the message. Enables agent relay and handoffs.
 
 Available primary agents:
 ${agentList}
 
-If omitted, uses current agent.
+If omitted, continues with current agent.
 
 EXAMPLES:
 
-  # Agent relay - pass to plan agent
+  # COLLABORATE: Multi-agent problem solving
   session({ 
-    text: "Should we use microservices here?", 
     mode: "message",
-    agent: "plan"
+    agent: "plan",
+    text: "Should we use microservices here?"
   })
-  # Plan agent receives message as USER message and responds
+  # Plan reviews, responds, can pass back to build
   
-  # Agent relay with compaction
+  # HANDOFF: Clean phase transition
   session({
-    text: "Continue architecture review",
+    mode: "new",
+    agent: "researcher", 
+    text: "Research best practices for API design"
+  })
+  # Fresh session, no baggage from previous implementation work
+  
+  # COMPRESS: Long conversation with handoff
+  session({
     mode: "compact",
-    agent: "plan"
+    agent: "plan",
+    text: "Continue architecture review"
   })
-  # Compacts history, then plan agent responds
+  # Compacts history, adds handoff context, plan agent responds
   
-  # Start new session for different phase
+  # PARALLELIZE: Try multiple approaches
   session({
-    text: "Begin security audit",
-    mode: "new", 
-    agent: "plan"
+    mode: "fork",
+    agent: "build",
+    text: "Implement using Redux"
   })
-  
-  # Multi-agent relay conversation
-  session({ text: "Implemented feature X", mode: "message", agent: "build" })
-  session({ text: "Review feature X", mode: "message", agent: "plan" })
+  session({
+    mode: "fork", 
+    agent: "build",
+    text: "Implement using Context API"
+  })
+  # Two independent sessions, compare results
 `,
         
         args: {
