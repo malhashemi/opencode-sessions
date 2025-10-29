@@ -347,8 +347,8 @@ EXAMPLES:
                 await ctx.client.session.summarize({
                   path: { id: toolCtx.sessionID },
                   body: {
-                    providerID: providerID,
-                    modelID: modelID
+                    providerID,
+                    modelID
                   }
                 })
                 
