@@ -11,41 +11,99 @@ Enable turn-based agent collaboration, clean phase transitions, manual compressi
 
 ## The Four Pillars
 
+### 🔀 **PARALLELIZE** — Explore Multiple Approaches
+
+Branch into independent sessions to try different solutions. Full primary agent capabilities in each fork. Explore different approaches with full conversational context—each fork is a live session you can discuss, iterate on, and refine before committing to one direction.
+
+```typescript
+// Exploring architectural approaches (not parallel implementations)
+session({
+  mode: "fork",
+  agent: "plan",
+  text: "Design this as a microservices architecture",
+})
+
+session({
+  mode: "fork",
+  agent: "plan",
+  text: "Design this as a modular monolith",
+})
+
+session({
+  mode: "fork",
+  agent: "plan",
+  text: "Design this as a serverless architecture",
+})
+
+// Switch between sessions to discuss trade-offs, iterate on each approach
+// before committing to one architecture
+```
+
+```mermaid
+graph TD
+    A[Main Session] -->|Fork| B[Approach A: Microservices]
+    A -->|Fork| C[Approach B: Modular Monolith]
+    A -->|Fork| D[Approach C: Serverless]
+
+    B --> E[Compare Results]
+    C --> E
+    D --> E
+```
+
+**Use Cases:**
+
+- Exploring alternative architectural approaches
+- Comparing different design patterns
+- "What if" scenario analysis before committing
+- Risk-free experimentation with full conversational context
+
+**Note:** Fork works best for design/architectural exploration, not parallel implementations of the same system.
+
+---
+
 ### 🤝 **COLLABORATE** — Turn-Based Agent Discussion
 
 Agents work together in the same conversation, passing the torch back and forth. Perfect for complex problems requiring multiple perspectives.
 
 ```typescript
+// Agent implements, then hands to review agent
+session({
+  mode: "message",
+  agent: "review",
+  text: "Review this authentication implementation",
+})
+
+// Or research hands to plan
 session({
   mode: "message",
   agent: "plan",
-  text: "Should we use microservices here?",
+  text: "Design our rate limiting based on this research",
 })
-// Plan agent reviews architecture and responds
-// Can pass back to build agent for implementation
 ```
 
 ```mermaid
 sequenceDiagram
     participant Build as Build Agent
     participant User as Session
-    participant Plan as Plan Agent
+    participant Review as Review Agent
 
     Build->>User: "Implemented feature X"
-    Note over Build: Tool: session(mode: "message", agent: "plan")
+    Note over Build: Tool: session(mode: "message", agent: "review")
     Build->>Build: Finishes turn
-    User->>Plan: "Implemented feature X"
-    Plan->>User: "Let me review that..."
-    Note over Plan: Reviews and provides feedback
-    Plan->>Build: Passes back via session tool
+    User->>Review: "Review this implementation"
+    Review->>User: "Let me review that..."
+    Note over Review: Analyzes and provides feedback
+    Review->>Build: Can pass back via session tool
 ```
 
 **Use Cases:**
 
-- Complex problem-solving requiring multiple viewpoints
-- Code review workflows (build → plan → build)
-- Architecture discussions (plan ↔ researcher)
+- Code review workflows (build → review → build)
+- Research handoffs (researcher → plan → build)
+- Architecture discussions (plan ↔ build)
 - Iterative refinement across agents
+
+**Note:** ⚠️ Not recommended when agents use different providers (e.g., Claude + GPT-4). Tested primarily with Sonnet 4.5 across agents.
 
 ---
 
@@ -122,48 +180,6 @@ sequenceDiagram
 
 ---
 
-### 🔀 **PARALLELIZE** — Explore Multiple Approaches
-
-Branch into independent sessions to try different solutions. Full primary agent capabilities in each fork.
-
-```typescript
-// Try approach A
-session({
-  mode: "fork",
-  agent: "build",
-  text: "Implement using Redux",
-})
-
-// Try approach B
-session({
-  mode: "fork",
-  agent: "build",
-  text: "Implement using Context API",
-})
-
-// Compare results, pick the best
-```
-
-```mermaid
-graph TD
-    A[Main Session] -->|Fork| B[Approach A: Redux]
-    A -->|Fork| C[Approach B: Context API]
-    A -->|Fork| D[Approach C: Zustand]
-
-    B --> E[Compare Results]
-    C --> E
-    D --> E
-```
-
-**Use Cases:**
-
-- Exploring alternative solutions
-- Comparing different approaches
-- "What if" scenario analysis
-- Risk-free experimentation with full agent capabilities
-
----
-
 ## Installation
 
 **Requirements:** OpenCode ≥ 0.15.18
@@ -204,6 +220,24 @@ rm -rf ~/.cache/opencode && opencode
 
 ---
 
+## ⚠️ Important Usage Notes
+
+**Agents won't use this automatically:**
+- Mention the tool in your `/command` or conversation when you want agents to use it
+- Agents need explicit instruction to leverage session management
+
+**Enable per-agent, not globally:**
+- Turn the tool off globally in your config
+- Enable it only for specific primary agents (build, plan, researcher, etc.)
+- This prevents sub-agents from accidentally using it (unless your workflow requires it)
+
+**Message mode with mixed providers:**
+- ⚠️ Not recommended when agents use different providers (e.g., Claude + GPT-4)
+- Tested primarily with Sonnet 4.5 across agents
+- If you try mixed providers, please report your experience
+
+---
+
 ## Usage
 
 ### Basic Syntax
@@ -238,25 +272,19 @@ Use Tab in OpenCode to see all available agents.
 ### Example 1: Code Review Workflow
 
 ```typescript
-// Build agent implements
+// Build agent implements, then hands to review
 session({
   mode: "message",
-  agent: "build",
-  text: "Implemented the user authentication system",
+  agent: "review",
+  text: "Review this authentication implementation for security issues",
 })
 
-// Build passes to plan for review
+// Review agent provides feedback, build can address
+// Or research → plan handoff
 session({
   mode: "message",
   agent: "plan",
-  text: "Review the authentication implementation for security issues",
-})
-
-// Plan provides feedback, passes back to build
-session({
-  mode: "message",
-  agent: "build",
-  text: "Address the CSRF vulnerability mentioned above",
+  text: "Design our rate limiting system based on this research",
 })
 ```
 
@@ -303,34 +331,32 @@ session({
 // User: Review the overall architecture we've built so far
 ```
 
-### Example 4: Parallel Approach Exploration
+### Example 4: Parallel Architectural Exploration
 
 ```typescript
-// Current session: discussing database choice
+// Exploring architectural approaches before committing
 
-// Fork A: Try PostgreSQL approach
 session({
   mode: "fork",
-  agent: "build",
-  text: "Implement data layer using PostgreSQL with Prisma",
+  agent: "plan",
+  text: "Design this as a microservices architecture",
 })
 
-// Fork B: Try MongoDB approach
 session({
   mode: "fork",
-  agent: "build",
-  text: "Implement data layer using MongoDB with Mongoose",
+  agent: "plan",
+  text: "Design this as a modular monolith",
 })
 
-// Fork C: Try serverless approach
 session({
   mode: "fork",
-  agent: "build",
-  text: "Implement data layer using DynamoDB",
+  agent: "plan",
+  text: "Design this as a serverless architecture",
 })
 
-// Each fork explores independently with full context
-// Compare results using <leader>l to switch between sessions
+// Switch between sessions (<leader>l) to discuss trade-offs with each approach
+// Iterate on designs, then commit to one architecture
+// Note: Fork works best for design exploration, not parallel implementations
 ```
 
 ---
